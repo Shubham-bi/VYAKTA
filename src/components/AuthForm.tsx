@@ -9,12 +9,10 @@ interface AuthFormProps {
 
 const AuthForm = ({ mode }: AuthFormProps) => {
   const [formData, setFormData] = useState({
-    fullNameIntLang: "",
     email: "",
   });
 
   const [errors, setErrors] = useState<{
-    fullNameIntLang?: string;
     email?: string;
   }>({});
 
@@ -31,8 +29,6 @@ const AuthForm = ({ mode }: AuthFormProps) => {
     e.preventDefault();
     setErrors({});
     setSuccessMessage("");
-    setIsSubmitting(true);
-
     try {
       // -------------------
       // LOGIN
@@ -40,48 +36,29 @@ const AuthForm = ({ mode }: AuthFormProps) => {
       if (mode === "login") {
         const payload = {
           email: formData.email,
-          password: "123456", // default password
         };
 
         const response = await apiClient.callApi(
-          "Auth",
+          "Main",
           "login",
           "POST",
           payload
         );
+        const data = response.data;
 
-        localStorage.setItem("tk_9xf1BzX", response.data?.token || "");
-        localStorage.setItem("userId", response.data?.userId || "");
+        if (data.token) localStorage.setItem("tk_9xf1BzX", data.token);
+        if (data.userId) localStorage.setItem("userId", data.userId);
 
         setSuccessMessage("Login successful! Redirecting...");
         setTimeout(() => navigate("/"), 800);
       }
 
-      // -------------------
-      // REGISTER + AUTO LOGIN
+      // REGISTER
       // -------------------
       if (mode === "register") {
-        const payload = {
-          salutation: "",
-          fullNameIntLang: formData.fullNameIntLang,
-          email: formData.email,
-          mobileNumber: "",
-          password: "123456",
-        };
-
-        await apiClient.callApi("Auth", "register", "POST", payload);
-
-        // Auto login
-        const loginRes = await apiClient.callApi("Auth", "login", "POST", {
-          email: payload.email,
-          password: payload.password,
-        });
-
-        localStorage.setItem("tk_9xf1BzX", loginRes.data?.token || "");
-        localStorage.setItem("userId", loginRes.data?.userId || "");
-
-        setSuccessMessage("Registration successful! Redirecting...");
-        setTimeout(() => navigate("/"), 800);
+        // Registration is not supported in this form (no name input)
+        setErrors({ email: "Registration is not supported in this form." });
+        return;
       }
     } catch (err: any) {
       setErrors({
@@ -95,79 +72,58 @@ const AuthForm = ({ mode }: AuthFormProps) => {
   // -----------------------------
   // JSX RETURN
   // -----------------------------
-  return (
-    <form onSubmit={handleSubmit} className="space-y-6">
-      {/* FULL NAME (ONLY FOR REGISTER) */}
-      {mode === "register" && (
-        <div>
-          <label
-            htmlFor="fullNameIntLang"
-            className="block text-sm font-semibold text-gray-700 mb-2"
-          >
-            Name
-          </label>
-          <input
-            id="fullNameIntLang"
-            type="text"
-            value={formData.fullNameIntLang}
-            onChange={(e) =>
-              setFormData({ ...formData, fullNameIntLang: e.target.value })
-            }
-            className={`w-full p-3 border rounded-lg ${
-              errors.fullNameIntLang
-                ? "border-red-500 bg-red-50"
-                : "border-gray-300"
-            }`}
-            placeholder="Enter your full name"
-          />
-          {errors.fullNameIntLang && (
-            <p className="text-red-600 text-sm">{errors.fullNameIntLang}</p>
-          )}
+    return (
+      <div className="max-w-md w-full mx-auto">
+        <div className="bg-white/90 backdrop-blur-md p-8 rounded-2xl shadow-2xl border border-gray-100">
+          <div className="text-center mb-8">
+            <h2 className="text-2xl md:text-3xl font-bold text-gray-900 mb-2">
+              Sign In
+            </h2>
+            <p className="text-gray-600 text-base">
+              Access your account
+            </p>
+          </div>
+          <form onSubmit={handleSubmit} className="space-y-6">
+            {/* Email */}
+            <div>
+              <label htmlFor="email" className="block text-xs font-medium text-gray-600 mb-2 uppercase tracking-wider">
+                Email
+              </label>
+              <input
+                id="email"
+                type="email"
+                value={formData.email}
+                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                className={`w-full px-4 py-3 rounded-lg text-sm bg-gray-50 border ${errors.email ? "border-red-300 bg-red-50" : "border-transparent"} focus:outline-none focus:ring-2 focus:ring-indigo-400 transition-shadow duration-150 shadow-sm`}
+                placeholder="you@company.com"
+                aria-invalid={!!errors.email}
+              />
+              {errors.email && (
+                <p className="mt-2 text-sm text-red-600 font-medium">{errors.email}</p>
+              )}
+            </div>
+            {/* Success Message */}
+            {successMessage && (
+              <div className="rounded-md bg-green-50 border border-green-100 p-3 text-sm text-green-700 text-center">
+                {successMessage}
+              </div>
+            )}
+            {/* Submit Button */}
+            <div>
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className="w-full inline-flex items-center justify-center gap-3 px-5 py-3 bg-indigo-600 text-white rounded-lg text-sm font-semibold shadow-md hover:shadow-lg transform hover:-translate-y-0.5 transition-all disabled:opacity-60"
+              >
+                <span className={isSubmitting ? "animate-pulse" : ""}>
+                  {isSubmitting ? 'Signing in...' : 'Login'}
+                </span>
+              </button>
+            </div>
+          </form>
         </div>
-      )}
-
-      {/* EMAIL */}
-      <div>
-        <label
-          htmlFor="email"
-          className="block text-sm font-semibold text-gray-700 mb-2"
-        >
-          Email
-        </label>
-        <input
-          id="email"
-          type="email"
-          value={formData.email}
-          onChange={(e) =>
-            setFormData({ ...formData, email: e.target.value })
-          }
-          className={`w-full p-3 border rounded-lg ${
-            errors.email ? "border-red-500 bg-red-50" : "border-gray-300"
-          }`}
-          placeholder="Enter your email"
-        />
-        {errors.email && (
-          <p className="text-red-600 text-sm">{errors.email}</p>
-        )}
       </div>
-
-      {/* SUCCESS MESSAGE */}
-      {successMessage && (
-        <div className="p-3 bg-green-100 text-green-700 rounded">
-          {successMessage}
-        </div>
-      )}
-
-      {/* SUBMIT BUTTON */}
-      <button
-        type="submit"
-        disabled={isSubmitting}
-        className="w-full bg-blue-600 text-white py-3 rounded-xl"
-      >
-        {isSubmitting ? "Processing..." : mode === "login" ? "Login" : "Register"}
-      </button>
-    </form>
-  );
+    );
 };
 
 export default AuthForm;

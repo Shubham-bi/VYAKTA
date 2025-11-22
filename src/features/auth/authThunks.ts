@@ -2,6 +2,8 @@ import { createAsyncThunk } from '@reduxjs/toolkit';
 import apiClient from '../../api/apiClient';
 import { setCredentials, clearCredentials } from './authSlice';
 
+// ------------------------- Interfaces -------------------------
+
 interface RegisterPayload {
   fullNameIntLang: string;
   email: string;
@@ -15,90 +17,105 @@ interface RegisterResponse {
   userId: string;
   email: string;
   fullName?: string;
-  message?: string;
+  token?: string;
 }
 
 interface LoginResponse {
   userId: string;
-  message: string;
+  token: string;
 }
+
+// ------------------------- Register User -------------------------
 
 export const registerUser = createAsyncThunk(
   'auth/register',
   async (payload: RegisterPayload, { rejectWithValue, dispatch }) => {
     try {
-      const response = await apiClient.post<RegisterResponse>('/api/User/register', {
-        fullNameIntLang: payload.fullNameIntLang,
-        email: payload.email,
-      });
+      const response = await apiClient.callApi(
+        "Main",
+        "register",
+        "POST",
+        {
+          salutation: "",
+          fullNameIntLang: payload.fullNameIntLang,
+          email: payload.email,
+          mobileNumber: ""
+        }
+      );
 
-      const authData = response.data;
-      
-      // Dispatch credentials to store
+      const authData: RegisterResponse = response.data;
+
+      // Save to Redux
       dispatch(
         setCredentials({
           user: {
-            id: authData.userId,
-            email: payload.email,
-            fullName: payload.fullNameIntLang,
+            userId: authData.userId,
+            email: authData.email,
+            fullNameIntLang: payload.fullNameIntLang,
           },
-          token: authData.userId, // Using userId as token for now
+          token: authData.token || authData.userId, // fallback
         })
       );
 
-      // Store userId in localStorage
-      localStorage.setItem('userId', authData.userId);
-      localStorage.setItem('token', authData.userId);
+      // Save to localStorage
+      localStorage.setItem("userId", authData.userId);
+      localStorage.setItem("tk_9xf1BzX", authData.token || authData.userId);
 
       return authData;
     } catch (error: any) {
       return rejectWithValue(
-        error.response?.data?.message || 'Registration failed. Please try again.'
+        error?.response?.data?.message || "Registration failed"
       );
     }
   }
 );
+
+// ------------------------- Login User -------------------------
 
 export const loginUser = createAsyncThunk(
   'auth/login',
   async (payload: LoginPayload, { rejectWithValue, dispatch }) => {
     try {
-      const response = await apiClient.post<LoginResponse>('/api/Auth/login', {
-        email: payload.email,
-      });
+      const response = await apiClient.callApi(
+        "Main",
+        "login",
+        "POST",
+        { email: payload.email }
+      );
 
-      const authData = response.data;
+      const authData: LoginResponse = response.data;
 
-      // Dispatch credentials to store
       dispatch(
         setCredentials({
           user: {
-            id: authData.userId,
+            userId: authData.userId,
             email: payload.email,
-            fullName: '',
+            fullNameIntLang: "",
           },
-          token: authData.userId, // Using userId as token for now
+          token: authData.token,
         })
       );
 
-      // Store userId in localStorage
-      localStorage.setItem('userId', authData.userId);
-      localStorage.setItem('token', authData.userId);
+      // Save token
+      localStorage.setItem("userId", authData.userId);
+      localStorage.setItem("tk_9xf1BzX", authData.token);
 
       return authData;
     } catch (error: any) {
       return rejectWithValue(
-        error.response?.data?.message || 'Login failed. Please try again.'
+        error?.response?.data?.message || "Login failed"
       );
     }
   }
 );
 
+// ------------------------- Logout -------------------------
+
 export const logoutUser = createAsyncThunk(
   'auth/logout',
   async (_, { dispatch }) => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('userId');
+    localStorage.removeItem("userId");
+    localStorage.removeItem("tk_9xf1BzX");
     dispatch(clearCredentials());
   }
 );

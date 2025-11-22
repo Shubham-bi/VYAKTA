@@ -1,8 +1,7 @@
 import axios from "axios";
 
 class ApiService {
-  private apiUrl = "https://tornatitansapi.shauryatechnosoft.com";
-  // https://tornatitansapi.shauryatechnosoft.com
+  private apiUrl = "https://tornatitansapi.shauryatechnosoft.com/api";
 
   constructor() {
     axios.defaults.withCredentials = true;
@@ -17,9 +16,18 @@ class ApiService {
     const url = `${this.apiUrl}/${controllerName}/${methodName}`;
     const token = localStorage.getItem("tk_9xf1BzX");
 
+    // ❗ REMOVE Authorization for login/register
+    const noAuthNeeded =
+      methodName.toLowerCase() === "login" ||
+      methodName.toLowerCase() === "register";
+
     const headers: Record<string, string> = {
-      Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
+      ...(noAuthNeeded
+        ? {} // no token
+        : token
+        ? { Authorization: `Bearer ${token}` }
+        : {}),
     };
 
     switch (methodType) {
