@@ -12,10 +12,9 @@ function floatTo16PCM(float32: Float32Array): Uint8Array {
   return new Uint8Array(out.buffer);
 }
 
-export default function AudioToImage() {
+export default function AudioToImage({ autoStart = false, micOn = true }) {
   const [wsStatus, setWsStatus] = useState<string>("disconnected");
   const [streaming, setStreaming] = useState<boolean>(false);
-  const [micOn, setMicOn] = useState<boolean>(true);
   const [imgURL, setImgURL] = useState<string | null>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
@@ -93,7 +92,7 @@ export default function AudioToImage() {
       if (stopFlagRef.current) return;
       if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
 
-      if (!micOn) return;
+      if (!micOn) return;  // ✅ mic toggle control
 
       const float32 = ev.inputBuffer.getChannelData(0);
       const pcm = floatTo16PCM(float32);
@@ -118,6 +117,17 @@ export default function AudioToImage() {
     setStreaming(true);
   }
 
+  // ✅ auto start when MeetingRoom loads
+  useEffect(() => {
+    if (autoStart && !streaming) startAudio();
+  }, [autoStart]);
+
+  // ✅ apply mic toggle from MeetingRoom
+  useEffect(() => {
+    const ms = mediaStreamRef.current;
+    ms?.getAudioTracks().forEach((t) => (t.enabled = micOn));
+  }, [micOn]);
+
   // ---------------- Stop Audio ----------------
   function stopAudio() {
     stopFlagRef.current = true;
@@ -138,29 +148,23 @@ export default function AudioToImage() {
     setStreaming(false);
   }
 
-  // ---------------- Toggle Mic ----------------
-  function toggleMic() {
-    setMicOn((prev) => {
-      const now = !prev;
-      const ms = mediaStreamRef.current;
-      ms?.getAudioTracks().forEach((t) => (t.enabled = now));
-      return now;
-    });
-  }
-
   return (
     <div className="row">
       <div style={{ minWidth: 280 }}>
         <div className="badge">WS(audio): {wsStatus}</div>
 
         <div style={{ marginTop: 10, display: "flex", gap: 8 }}>
-          {!streaming ? (
+
+          {/* ✅ hide Start button when autoStart */}
+          {!streaming && !autoStart ? (
             <button onClick={startAudio}>Start Streaming</button>
-          ) : (
+          ) : null}
+
+          {streaming && (
             <button onClick={stopAudio}>Stop Streaming</button>
           )}
 
-          <button onClick={toggleMic}>{micOn ? "Mic Off" : "Mic On"}</button>
+          <button>{micOn ? "Mic Off" : "Mic On"}</button>
         </div>
 
         <p className="muted" style={{ marginTop: 8 }}>

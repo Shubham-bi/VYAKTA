@@ -2,10 +2,9 @@ import { useEffect, useRef, useState } from "react";
 
 const VIDEO_WS_URL = import.meta.env.VITE_VIDEO_WS_URL as string;
 
-export default function ImageStream30() {
+export default function ImageStream30({ autoStart = false, camOn = true }) {
   const [wsStatus, setWsStatus] = useState<string>("disconnected");
   const [capturing, setCapturing] = useState<boolean>(false);
-  const [cameraOn, setCameraOn] = useState<boolean>(true);
   const [typed, setTyped] = useState<string>("");
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -15,15 +14,6 @@ export default function ImageStream30() {
   const pendingRef = useRef<string>("");
   const terminalRef = useRef<HTMLDivElement | null>(null);
   const stopFlagRef = useRef<boolean>(false);
-
-  const speak = (text: string) => {
-    if (!text) return;
-    const speech = new SpeechSynthesisUtterance(text);
-    speech.lang = "en-IN";
-    speech.rate = 1.8;
-    speech.pitch = 1;
-    speechSynthesis.speak(speech);
-  };
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -66,7 +56,6 @@ export default function ImageStream30() {
           const msg = JSON.parse(raw);
           if (msg.delta) {
             pendingRef.current += msg.delta;
-            speak(msg.delta);
           }
         } catch {}
       };
@@ -87,8 +76,9 @@ export default function ImageStream30() {
     });
 
     streamRef.current = stream;
+
     const track = stream.getVideoTracks()[0];
-    track.enabled = cameraOn;
+    track.enabled = camOn;   // ✅ camera controlled from MeetingRoom
 
     const v = videoRef.current!;
     v.srcObject = stream;
@@ -109,7 +99,7 @@ export default function ImageStream30() {
         const { value: frame, done } = await reader.read();
         if (done || !frame) break;
 
-        if (!cameraOn) {
+        if (!camOn) {   // ✅ camera toggle works from MeetingRoom
           frame.close();
           continue;
         }
@@ -142,6 +132,20 @@ export default function ImageStream30() {
     })();
   }
 
+  // ✅ auto start when MeetingRoom loads
+  useEffect(() => {
+    if (autoStart && !capturing) startCapture();
+  }, [autoStart]);
+
+  // ✅ apply camera toggle from MeetingRoom
+  useEffect(() => {
+    if (streamRef.current) {
+      streamRef.current.getVideoTracks().forEach(t => {
+        t.enabled = camOn;
+      });
+    }
+  }, [camOn]);
+
   function stopCapture() {
     stopFlagRef.current = true;
     readerRef.current?.cancel().catch(() => {});
@@ -157,15 +161,14 @@ export default function ImageStream30() {
       <div>
         <div>WS(video): {wsStatus}</div>
 
-        {!capturing ? (
+        {/* ✅ hide Start button when autoStart */}
+        {!capturing && !autoStart ? (
           <button onClick={startCapture}>Start</button>
-        ) : (
+        ) : null}
+
+        {capturing && (
           <button onClick={stopCapture}>Stop</button>
         )}
-
-        <button onClick={() => setCameraOn(v => !v)}>
-          {cameraOn ? "Camera Off" : "Camera On"}
-        </button>
 
         <video ref={videoRef} autoPlay muted playsInline width={320} height={180} />
       </div>
