@@ -7,9 +7,13 @@ import Auth from "./pages/Auth";
 import MeetingSetup from "./pages/MeetingSetup";
 import Meeting from "./pages/Meeting";
 import MeetingRoom from "./pages/MeetingRoom";
+import Features from "./pages/Features";
+import About from "./pages/About";
+import Contact from "./pages/Contact";
 
 import ImageStream30 from "./components/ImageStream30";
 import AudioToImage from "./components/AudioToImage";
+import PublicLayout from "./components/PublicLayout";
 
 import "./App.css";
 
@@ -20,7 +24,13 @@ function App() {
         <Routes>
 
           {/* Public Routes */}
-          <Route path="/" element={<Home />} />
+          {/* Public Routes */}
+          <Route element={<PublicLayout />}>
+            <Route path="/" element={<Home />} />
+            <Route path="/features" element={<Features />} />
+            <Route path="/about" element={<About />} />
+            <Route path="/contact" element={<Contact />} />
+          </Route>
           <Route path="/auth" element={<Auth />} />
 
           {/* Login/Register → MeetingSetup */}

@@ -2,180 +2,440 @@ import { useEffect, useRef, useState } from "react";
 
 const VIDEO_WS_URL = import.meta.env.VITE_VIDEO_WS_URL as string;
 
-export default function ImageStream30({ autoStart = false, camOn = true }) {
+type Props = {
+  autoStart?: boolean;
+  camOn?: boolean;
+  onTextUpdate?: (text: string) => void;
+  onSpeechInitChange?: (initialized: boolean, enabled: boolean) => void;
+  onStatusChange?: (status: string) => void;
+  hideControls?: boolean;
+};
+
+export default function ImageStream30({
+  autoStart = false,
+  camOn = true,
+  onTextUpdate,
+  onSpeechInitChange,
+  onStatusChange,
+  hideControls = false,
+}: Props) {
+  // UI state
   const [wsStatus, setWsStatus] = useState<string>("disconnected");
   const [capturing, setCapturing] = useState<boolean>(false);
   const [typed, setTyped] = useState<string>("");
 
+  // refs
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const readerRef = useRef<ReadableStreamDefaultReader<any> | null>(null);
-  const pendingRef = useRef<string>("");
-  const terminalRef = useRef<HTMLDivElement | null>(null);
   const stopFlagRef = useRef<boolean>(false);
+  const terminalRef = useRef<HTMLDivElement | null>(null);
+
+  // typing buffer
+  const pendingRef = useRef<string>("");
+  const typerRef = useRef<any>(null);
+
+  // Speech state
+  const [speechInitialized, setSpeechInitialized] = useState<boolean>(false);
+  const [speakingEnabled, setSpeakingEnabled] = useState<boolean>(true);
+
+  // init speech on user gesture
+  const initSpeech = () => {
+    try {
+      if (!("speechSynthesis" in window)) {
+        setSpeechInitialized(false);
+        return;
+      }
+      // warm up
+      const warm = new SpeechSynthesisUtterance("");
+      window.speechSynthesis.speak(warm);
+      setSpeechInitialized(true);
+    } catch {
+      setSpeechInitialized(false);
+    }
+  };
+
+  // Notify parent of WS status changes
+  useEffect(() => {
+    if (onStatusChange) {
+      onStatusChange(wsStatus);
+    }
+  }, [wsStatus, onStatusChange]);
+
+  // Speech handling
+  // We use a Set to hold *multiple* active utterances to prevent GC of queued items
+  const activeUtterancesRef = useRef<Set<SpeechSynthesisUtterance>>(new Set());
+  const speechBufferRef = useRef<string>("");
+  const speechIntervalRef = useRef<any>(null);
+
+  const speakNow = (text: string) => {
+    if (!speakingEnabled) return;
+    // content check log
+    // console.log("Received delta:", text); 
+    speechBufferRef.current += text;
+  };
+
+  // Dedicated loop to process speech buffer periodically
+  useEffect(() => {
+    speechIntervalRef.current = setInterval(() => {
+      const text = speechBufferRef.current;
+      if (!text || text.trim().length === 0) return;
+
+      try {
+        const speech = new SpeechSynthesisUtterance(text);
+        speech.lang = "en-IN";
+        speech.rate = 1.2;
+        speech.pitch = 1.2;
+
+        // Add to Set
+        activeUtterancesRef.current.add(speech);
+
+        speech.onend = () => {
+          activeUtterancesRef.current.delete(speech);
+        };
+        speech.onerror = (e) => {
+          console.error("Speech error", e);
+          activeUtterancesRef.current.delete(speech);
+        };
+
+        window.speechSynthesis.speak(speech);
+        speechBufferRef.current = ""; // Clear buffer
+      } catch (e) {
+        console.error("Speech creation error", e);
+      }
+    }, 500); // Check every 500ms
+
+    return () => {
+      clearInterval(speechIntervalRef.current);
+      // Cancel all
+      if ("speechSynthesis" in window) window.speechSynthesis.cancel();
+      activeUtterancesRef.current.clear();
+    };
+  }, [speakingEnabled]);
+
 
   useEffect(() => {
-    const interval = setInterval(() => {
+    // Notify parent about speech capability
+    if (onSpeechInitChange) {
+      // Assuming speech is always "ready" in this simplified version
+      onSpeechInitChange(true, true);
+    }
+
+    // typewriter at ~60Hz
+    typerRef.current = setInterval(() => {
       const buf = pendingRef.current;
       if (!buf) return;
-
       const take = Math.min(3, buf.length);
-      setTyped(t => t + buf.slice(0, take));
+      const chunk = buf.slice(0, take);
+
+      setTyped((t) => t + chunk);
       pendingRef.current = buf.slice(take);
+
+      // Notify parent of text update
+      if (onTextUpdate) {
+        // We need to pass the *full* updated text.
+        // Since setTyped is async, we can't just use 'typed' here easily without an effect.
+        // But the reference code does local typing.
+        // Let's rely on the effect below to sync with parent.
+      }
     }, 16);
 
-    return () => clearInterval(interval);
+    // Auto-start if requested
+    if (autoStart) {
+      startCapture();
+    }
+
+    return () => {
+      clearInterval(typerRef.current);
+      stopCapture();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Sync typed text with parent
   useEffect(() => {
+    if (onTextUpdate) {
+      onTextUpdate(typed);
+    }
+
+    // Auto-scroll local terminal
     const el = terminalRef.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [typed]);
+  }, [typed, onTextUpdate]);
 
   const connectWS = () =>
     new Promise<WebSocket>((resolve, reject) => {
       const ws = new WebSocket(VIDEO_WS_URL);
       ws.binaryType = "arraybuffer";
-
       ws.onopen = () => {
         setWsStatus("connected");
         resolve(ws);
       };
+
+      // Persistent close handler
       ws.onclose = () => setWsStatus("disconnected");
-      ws.onerror = e => {
+
+      // Handshake error handler (overridden on success in some patterns, but here we keep simple)
+      ws.onerror = (e) => {
         setWsStatus("error");
         reject(e);
       };
-      ws.onmessage = e => {
-        try {
-          const raw = typeof e.data === "string"
-            ? e.data
-            : new TextDecoder().decode(e.data);
 
+      ws.onmessage = (e) => {
+        try {
+          const raw = typeof e.data === "string" ? e.data : new TextDecoder().decode(e.data);
           const msg = JSON.parse(raw);
           if (msg.delta) {
             pendingRef.current += msg.delta;
+            speakNow(msg.delta);
           }
-        } catch {}
+        } catch {
+          /* ignore */
+        }
       };
     });
 
   async function startCapture() {
     if (capturing) return;
-
     setTyped("");
+    pendingRef.current = ""; // Clear pending text buffer
+    speechBufferRef.current = ""; // Clear speech buffer
     stopFlagRef.current = false;
 
-    const ws = await connectWS();
-    wsRef.current = ws;
+    try {
+      // 1) open WS
+      const ws = await connectWS();
+      wsRef.current = ws;
 
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: { width: 1280, height: 720, frameRate: { ideal: 30, max: 30 } },
-      audio: false
-    });
+      // 2) get camera stream
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: 1280, height: 720, frameRate: { ideal: 30, max: 30 } },
+        audio: false,
+      });
+      streamRef.current = stream;
 
-    streamRef.current = stream;
+      // honor cameraOn prop logic if needed, but for now we just get the track
+      const track = stream.getVideoTracks()[0];
+      // Sync track enabled state with prop
+      track.enabled = !!camOn;
 
-    const track = stream.getVideoTracks()[0];
-    track.enabled = camOn;   // ✅ camera controlled from MeetingRoom
-
-    const v = videoRef.current!;
-    v.srcObject = stream;
-    await v.play();
-
-    const processor = new (window as any).MediaStreamTrackProcessor({ track });
-    const reader = processor.readable.getReader();
-    readerRef.current = reader;
-
-    const canvas = new OffscreenCanvas(1280, 720);
-    const ctx = canvas.getContext("2d");
-
-    setCapturing(true);
-    let seq = 0;
-
-    (async function pump() {
-      while (!stopFlagRef.current) {
-        const { value: frame, done } = await reader.read();
-        if (done || !frame) break;
-
-        if (!camOn) {   // ✅ camera toggle works from MeetingRoom
-          frame.close();
-          continue;
-        }
-
-        if (!wsRef.current || wsRef.current.readyState !== 1) {
-          frame.close();
-          continue;
-        }
-
-        ctx?.drawImage(frame, 0, 0);
-        const blob = await canvas.convertToBlob({ type: "image/webp", quality: 0.6 });
-        const payload = new Uint8Array(await blob.arrayBuffer());
-
-        const header = new ArrayBuffer(13);
-        const dv = new DataView(header);
-        dv.setUint8(0, 0x11);
-        dv.setUint32(1, seq);
-        dv.setBigUint64(5, BigInt(Date.now()));
-
-        const out = new Uint8Array(13 + payload.length);
-        out.set(new Uint8Array(header), 0);
-        out.set(payload, 13);
-
-        wsRef.current.send(out);
-        frame.close();
-        seq++;
+      // bind preview
+      const v = videoRef.current;
+      if (v) {
+        v.srcObject = stream;
+        await v.play().catch(() => { });
       }
 
-      setCapturing(false);
-    })();
+      // 3) setup encoder pipeline
+      const w = 1280, h = 720, quality = 0.6;
+      // Polyfill check or assume modern browser
+      // @ts-ignore
+      const processor = new window.MediaStreamTrackProcessor({ track });
+      const reader = processor.readable.getReader();
+      readerRef.current = reader;
+
+      const offscreen = new OffscreenCanvas(w, h); // standard in modern browsers
+      const ctx = offscreen.getContext("2d", { desynchronized: true, alpha: false }) as OffscreenCanvasRenderingContext2D;
+      // @ts-ignore
+      const hasImageEncoder = "ImageEncoder" in window;
+
+      async function encodeWebP(frame: VideoFrame) {
+        // @ts-ignore
+        if (hasImageEncoder) {
+          // @ts-ignore
+          const enc = new ImageEncoder({ type: "image/webp", quality, width: w, height: h });
+          const { encoded } = await enc.encode(frame);
+          const size = encoded.allocationSize();
+          const buf = new ArrayBuffer(size);
+          await encoded.copyTo(buf);
+          return new Uint8Array(buf);
+        }
+
+        ctx.drawImage(frame, 0, 0, w, h);
+        const blob = await offscreen.convertToBlob({ type: "image/webp", quality });
+        return new Uint8Array(await blob.arrayBuffer());
+      }
+
+      setCapturing(true);
+      let seq = 0;
+
+      // 4) pumping loop
+      (async function pump() {
+        while (!stopFlagRef.current) {
+          const result = await reader.read();
+          if (result.done || !result.value) break;
+          const frame = result.value;
+
+          // if camera is toggled off (via prop sync), just drop frames until it's back on
+          // We check the track enabled state or the prop
+          if (!track.enabled) { // or !camOn
+            frame.close();
+            continue;
+          }
+
+          // backpressure: drop frames if WS congested
+          const ok =
+            wsRef.current &&
+            wsRef.current.readyState === WebSocket.OPEN &&
+            wsRef.current.bufferedAmount < 2_000_000;
+
+          if (!ok) {
+            frame.close();
+            continue;
+          }
+
+          const payload = await encodeWebP(frame);
+          frame.close();
+
+          // Build header: [1 byte type][4 bytes seq][8 bytes timestamp]
+          const header = new ArrayBuffer(13);
+          const dv = new DataView(header);
+          dv.setUint8(0, 0x11);
+          dv.setUint32(1, seq >>> 0);
+          // try setBigUint64
+          try {
+            dv.setBigUint64(5, BigInt(Date.now()));
+          } catch {
+            dv.setUint32(5, Math.floor(Date.now() / 1000));
+          }
+
+          const out = new Uint8Array(header.byteLength + payload.byteLength);
+          out.set(new Uint8Array(header), 0);
+          out.set(payload, header.byteLength);
+
+          wsRef.current?.send(out.buffer);
+          seq++;
+        }
+        // finished
+        setCapturing(false);
+      })().catch((e) => {
+        console.error("pump error", e);
+        setCapturing(false);
+      });
+
+    } catch (err) {
+      console.error("Start capture error", err);
+      // cleanup if failed
+      stopCapture();
+    }
   }
 
-  // ✅ auto start when MeetingRoom loads
+  function stopCapture() {
+    stopFlagRef.current = true;
+
+
+    streamRef.current = null;
+
+    try {
+      if ("speechSynthesis" in window) window.speechSynthesis.cancel();
+    } catch { }
+
+    try {
+      if (wsRef.current) {
+        try {
+          if (wsRef.current.readyState === WebSocket.OPEN) {
+            try {
+              wsRef.current.send(JSON.stringify({ type: "client_disconnect" }));
+            } catch { }
+          }
+        } finally {
+          try {
+            wsRef.current.close();
+          } catch { }
+          wsRef.current = null;
+        }
+      }
+    } catch { }
+
+    setCapturing(false);
+  }
+
+  // auto start when MeetingRoom loads
   useEffect(() => {
     if (autoStart && !capturing) startCapture();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoStart]);
 
-  // ✅ apply camera toggle from MeetingRoom
+  // apply camera toggle from MeetingRoom
   useEffect(() => {
     if (streamRef.current) {
-      streamRef.current.getVideoTracks().forEach(t => {
+      streamRef.current.getVideoTracks().forEach((t) => {
         t.enabled = camOn;
       });
     }
   }, [camOn]);
 
-  function stopCapture() {
-    stopFlagRef.current = true;
-    readerRef.current?.cancel().catch(() => {});
-    streamRef.current?.getTracks().forEach(t => t.stop());
-    streamRef.current = null;
-    wsRef.current?.close();
-    wsRef.current = null;
-    setCapturing(false);
-  }
+  // cleanup on unmount
+  useEffect(() => {
+    const onEndMeeting = () => stopCapture();
+    window.addEventListener("endMeeting", onEndMeeting);
+
+    return () => {
+      window.removeEventListener("endMeeting", onEndMeeting);
+      stopCapture();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
-    <div className="flex gap-4">
-      <div>
-        <div>WS(video): {wsStatus}</div>
+    <div className="relative w-full h-full bg-black rounded-xl overflow-hidden group">
+      {/* Video fills the container */}
+      <video
+        ref={videoRef}
+        autoPlay
+        playsInline
+        muted
+        className="w-full h-full object-cover transform scale-x-[-1]" // Mirror effect
+      />
 
-        {/* ✅ hide Start button when autoStart */}
-        {!capturing && !autoStart ? (
-          <button onClick={startCapture}>Start</button>
-        ) : null}
+      {/* Internal controls overlay (only if hideControls is false) */}
+      {!hideControls && (
+        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col justify-between p-4 pointer-events-none">
+          <div className="pointer-events-auto flex items-start justify-between">
+            <div className="bg-black/60 px-3 py-1 rounded-full text-white text-xs backdrop-blur-md border border-white/10">
+              WS: {wsStatus}
+            </div>
+          </div>
 
-        {capturing && (
-          <button onClick={stopCapture}>Stop</button>
-        )}
+          <div className="pointer-events-auto flex items-center justify-center gap-4">
+            {!capturing && !autoStart && (
+              <button
+                onClick={startCapture}
+                className="px-4 py-2 bg-indigo-600 text-white rounded-lg shadow-lg hover:bg-indigo-700 transition"
+              >
+                Start Stream
+              </button>
+            )}
+            {capturing && (
+              <button
+                onClick={stopCapture}
+                className="px-4 py-2 bg-red-500 text-white rounded-lg shadow-lg hover:bg-red-600 transition"
+              >
+                Stop Stream
+              </button>
+            )}
+          </div>
 
-        <video ref={videoRef} autoPlay muted playsInline width={320} height={180} />
-      </div>
+          <div className="pointer-events-auto text-white/80 text-xs">
+            {/* Other debug toggles could go here */}
+          </div>
+        </div>
+      )}
 
-      <div ref={terminalRef} className="p-2 bg-black text-white w-72 h-48 overflow-auto rounded">
-        {typed}
-      </div>
+      {/* Debug terminal: Show ONLY if onTextUpdate is NOT provided (standalone mode) */}
+      {!onTextUpdate && (
+        <div
+          ref={terminalRef}
+          className="absolute bottom-4 left-4 right-4 h-32 bg-black/80 backdrop-blur-sm border border-white/10 rounded-lg p-3 text-green-400 font-mono text-xs overflow-y-auto shadow-2xl"
+        >
+          <div className="sticky top-0 bg-black/80 border-b border-white/10 pb-1 mb-2 text-white font-bold uppercase tracking-wider text-[10px]">
+            Incoming Live Text
+          </div>
+          {typed}
+          <span className="animate-pulse">_</span>
+        </div>
+      )}
     </div>
   );
 }

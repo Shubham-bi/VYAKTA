@@ -72,7 +72,7 @@ const MeetingSetup = () => {
         );
 
         userId = loginRes?.data?.responseData?.id;
-         localStorage.setItem("userId", userId);
+        localStorage.setItem("userId", userId);
 
         // Redirect immediately to your new screen
         // navigate("/video-stream");   // or "/audio-stream"
@@ -102,11 +102,11 @@ const MeetingSetup = () => {
         userId = loginRes?.data?.responseData?.id;
         localStorage.setItem("userId", userId);
 
-          // Direct redirect after registration
-          // navigate("/video-stream");   // or "/audio-stream"
-          navigate("/meeting");
+        // Direct redirect after registration
+        // navigate("/video-stream");   // or "/audio-stream"
+        navigate("/meeting");
 
-          return;
+        return;
       }
 
       // Store User
@@ -155,22 +155,20 @@ const MeetingSetup = () => {
           <div className="flex justify-center gap-3 mb-6">
             <button
               onClick={() => setAuthMode("login")}
-              className={`px-5 py-2 rounded-xl font-semibold transition ${
-                authMode === "login"
-                  ? "bg-indigo-600 text-white shadow-lg"
-                  : "bg-gray-200 text-gray-700"
-              }`}
+              className={`px-5 py-2 rounded-xl font-semibold transition ${authMode === "login"
+                ? "bg-indigo-600 text-white shadow-lg"
+                : "bg-gray-200 text-gray-700"
+                }`}
             >
               Login
             </button>
 
             <button
               onClick={() => setAuthMode("register")}
-              className={`px-5 py-2 rounded-xl font-semibold transition ${
-                authMode === "register"
-                  ? "bg-indigo-600 text-white shadow-lg"
-                  : "bg-gray-200 text-gray-700"
-              }`}
+              className={`px-5 py-2 rounded-xl font-semibold transition ${authMode === "register"
+                ? "bg-indigo-600 text-white shadow-lg"
+                : "bg-gray-200 text-gray-700"
+                }`}
             >
               Register
             </button>
@@ -203,9 +201,8 @@ const MeetingSetup = () => {
                     onChange={(e) =>
                       setFormData({ ...formData, fullNameIntLang: e.target.value })
                     }
-                    className={`w-full p-3 border rounded-lg bg-gray-50 ${
-                      errors.fullNameIntLang ? "border-red-500" : "border-gray-300"
-                    }`}
+                    className={`w-full p-3 border rounded-lg bg-gray-50 ${errors.fullNameIntLang ? "border-red-500" : "border-gray-300"
+                      }`}
                   />
                 </div>
 
@@ -219,9 +216,8 @@ const MeetingSetup = () => {
                     onChange={(e) =>
                       setFormData({ ...formData, mobileNumber: e.target.value })
                     }
-                    className={`w-full p-3 border rounded-lg bg-gray-50 ${
-                      errors.mobileNumber ? "border-red-500" : "border-gray-300"
-                    }`}
+                    className={`w-full p-3 border rounded-lg bg-gray-50 ${errors.mobileNumber ? "border-red-500" : "border-gray-300"
+                      }`}
                   />
                 </div>
               </div>
@@ -239,11 +235,10 @@ const MeetingSetup = () => {
                 onChange={(e) =>
                   setFormData({ ...formData, email: e.target.value })
                 }
-                className={`w-full p-3 border rounded-lg ${
-                  errors.email
-                    ? "border-red-500 bg-red-50"
-                    : "border-gray-300 bg-white"
-                }`}
+                className={`w-full p-3 border rounded-lg ${errors.email
+                  ? "border-red-500 bg-red-50"
+                  : "border-gray-300 bg-white"
+                  }`}
               />
             </div>
 
@@ -269,8 +264,8 @@ const MeetingSetup = () => {
                   ? "Logging in…"
                   : "Registering…"
                 : authMode === "login"
-                ? "Login & Start Meeting"
-                : "Register & Start Meeting"}
+                  ? "Login & Start Meeting"
+                  : "Register & Start Meeting"}
             </button>
           </form>
         </div>

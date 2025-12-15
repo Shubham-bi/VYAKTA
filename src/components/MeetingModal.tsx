@@ -40,10 +40,27 @@ const MeetingModal = ({ isOpen, onClose }: MeetingModalProps) => {
   };
 
   // ============================================================
-  // 🔥 MAIN SUBMIT HANDLER  (unchanged)
+  // 🔥 MAIN SUBMIT HANDLER
   // ============================================================
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
+
+    // user gesture: set a short-lived flag so ImageStream can pick it up on mount
+    try {
+      sessionStorage.setItem("unlockSpeech", "1");
+      // also dispatch immediate event (covers the case ImageStream already mounted)
+      window.dispatchEvent(new Event("userGestureEnableSpeech"));
+    } catch {
+      // ignore storage errors
+    }
+
+    // stop any existing meeting streams if component still mounted elsewhere
+    try {
+      window.dispatchEvent(new Event("endMeeting"));
+    } catch {
+      // ignore
+    }
+
     setFormError(null);
     if (!validate()) return;
 
@@ -97,11 +114,6 @@ const MeetingModal = ({ isOpen, onClose }: MeetingModalProps) => {
       }
 
       // ---------------------- LOGIN VALIDATION ----------------------
-      // if (!loginRes?.data?.userId) {
-      //   throw new Error("Login failed: User ID missing");
-      // }
-
-      // const userId = loginRes.data.userId;
       const userId = loginRes.data.responseData.id;
       const token = loginRes.data?.token || "";
 
@@ -121,33 +133,8 @@ const MeetingModal = ({ isOpen, onClose }: MeetingModalProps) => {
         }
       );
 
-      // const meetingId = createRes.data?.meetingId;
       const meetingId = createRes.data?.responseData;
       if (!meetingId) throw new Error("Meeting creation failed");
-
-      // ---------------------- JOIN MEETING ----------------------
-      // await apiClient.callApi("Main", "join-meeting", "POST", {
-      //   meetingId: Number(meetingId), 
-      //   userId: Number(userId),
-      // });
-
-      // try {
-      //     await apiClient.callApi("Main", "join-meeting", "POST", {       /// To avoid re-join error
-      //       meetingId: Number(meetingId),
-      //       userId: Number(userId),
-      //     });
-      //   } catch (err: any) {
-      //     const code = err?.response?.status;
-      //     const msg = err?.response?.data?.statusMessage;
-
-      //     // ✔️ Allow flow to continue even if already joined
-      //     if (code === 409 && msg === "User already joined this meeting") {
-      //       console.warn("User already joined - continuing...");
-      //     } else {
-      //       throw err; // ❌ Other errors should still stop flow
-      //     }
-      //   }
-
 
       // ---------------------- REDIRECT ----------------------
       navigate(`/meeting/${meetingId}`, {
@@ -248,9 +235,8 @@ const MeetingModal = ({ isOpen, onClose }: MeetingModalProps) => {
               onChange={(e) =>
                 setFormData({ ...formData, email: e.target.value })
               }
-              className={`w-full px-4 py-3 rounded-lg bg-gray-50 border ${
-                errors.email ? "border-red-300 bg-red-50" : "border-gray-200"
-              }`}
+              className={`w-full px-4 py-3 rounded-lg bg-gray-50 border ${errors.email ? "border-red-300 bg-red-50" : "border-gray-200"
+                }`}
               placeholder="you@company.com"
             />
             {errors.email && (
@@ -291,11 +277,10 @@ const MeetingModal = ({ isOpen, onClose }: MeetingModalProps) => {
           <div className="flex justify-center gap-2">
             <button
               type="button"
-              className={`px-4 py-2 rounded-lg ${
-                authMode === "login"
-                  ? "bg-indigo-600 text-white"
-                  : "bg-gray-100 text-gray-700"
-              }`}
+              className={`px-4 py-2 rounded-lg ${authMode === "login"
+                ? "bg-indigo-600 text-white"
+                : "bg-gray-100 text-gray-700"
+                }`}
               onClick={() => setAuthMode("login")}
             >
               Login
@@ -303,11 +288,10 @@ const MeetingModal = ({ isOpen, onClose }: MeetingModalProps) => {
 
             <button
               type="button"
-              className={`px-4 py-2 rounded-lg ${
-                authMode === "register"
-                  ? "bg-indigo-600 text-white"
-                  : "bg-gray-100 text-gray-700"
-              }`}
+              className={`px-4 py-2 rounded-lg ${authMode === "register"
+                ? "bg-indigo-600 text-white"
+                : "bg-gray-100 text-gray-700"
+                }`}
               onClick={() => setAuthMode("register")}
             >
               Register
@@ -325,8 +309,8 @@ const MeetingModal = ({ isOpen, onClose }: MeetingModalProps) => {
                 ? "Logging in..."
                 : "Registering..."
               : authMode === "login"
-              ? "Login & Start Meeting"
-              : "Register & Start Meeting"}
+                ? "Login & Start Meeting"
+                : "Register & Start Meeting"}
           </button>
         </form>
       </div>
