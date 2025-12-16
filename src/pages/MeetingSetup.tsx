@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams, Link } from "react-router-dom";
 import { useDispatch, useSelector } from "react-redux";
 import type { AppDispatch, RootState } from "../app/store";
 import ToggleMode from "../components/ToggleMode";
@@ -16,7 +16,6 @@ const MeetingSetup = () => {
   const [authMode, setAuthMode] = useState<"login" | "register">("login");
 
   const [formData, setFormData] = useState({
-    salutation: "",
     fullNameIntLang: "",
     email: searchParams.get("email") || "",
     mobileNumber: "",
@@ -64,33 +63,30 @@ const MeetingSetup = () => {
       // LOGIN FLOW
       // ----------------------
       if (authMode === "login") {
+        console.log("Attempting Login...");
         const loginRes = await apiClient.callApi(
           "Main",
           "login",
           "POST",
           { email: formData.email }
         );
+        console.log("Login Res:", loginRes);
 
         userId = loginRes?.data?.responseData?.id;
-        localStorage.setItem("userId", userId);
-
-        // Redirect immediately to your new screen
-        // navigate("/video-stream");   // or "/audio-stream"
-        navigate("/meeting");
-
-        return;
       }
 
       // ----------------------
       // REGISTER → THEN LOGIN
       // ----------------------
       if (authMode === "register") {
+        console.log("Attempting Register...");
         await apiClient.callApi("Main", "register", "POST", {
-          salutation: formData.salutation,
+          salutation: "",
           fullNameIntLang: formData.fullNameIntLang,
           email: formData.email,
           mobileNumber: formData.mobileNumber,
         });
+        console.log("Register Success. Attempting Login...");
 
         const loginRes = await apiClient.callApi(
           "Main",
@@ -98,15 +94,24 @@ const MeetingSetup = () => {
           "POST",
           { email: formData.email }
         );
+        console.log("Login Res:", loginRes);
 
         userId = loginRes?.data?.responseData?.id;
-        localStorage.setItem("userId", userId);
+      }
 
-        // Direct redirect after registration
-        // navigate("/video-stream");   // or "/audio-stream"
-        navigate("/meeting");
+      // Validate UserID
+      if (!userId) {
+        // Fallback: If registration was successful but login failed (no userId)
+        if (authMode === "register") {
+          console.warn("Registration success, but auto-login failed. Prompting manual login.");
+          setAuthMode("login");
+          setErrors({ email: "Registration successful! Please click Login." }); // Use email error field for feedback for now, or alert
+          // clear submission state
+          setIsSubmitting(false);
+          return;
+        }
 
-        return;
+        throw new Error("Unable to retrieve User ID. Login may have failed.");
       }
 
       // Store User
@@ -117,6 +122,7 @@ const MeetingSetup = () => {
       // ----------------------------------------------
       // CREATE MEETING → BACKEND NEEDS userId + title
       // ----------------------------------------------
+      console.log("Creating Meeting for User:", userId);
       const meetingRes = await dispatch(
         createMeeting({
           userId,
@@ -125,12 +131,20 @@ const MeetingSetup = () => {
         })
       ).unwrap();
 
+      console.log("Meeting Created:", meetingRes);
+
       // Redirect to Meeting page
       navigate(`/meeting/${meetingRes.meetingId}`);
 
-    } catch (err) {
-      console.error(err);
-      setErrors({ email: "Something went wrong. Try again." });
+    } catch (err: any) {
+      console.error("Setup Error:", err);
+      let msg = "Something went wrong. Try again.";
+      if (err instanceof Error) msg = err.message;
+      if (typeof err === 'string') msg = err;
+      // axios error
+      if (err?.response?.data?.message) msg = err.response.data.message;
+
+      setErrors({ email: msg });
     } finally {
       setIsSubmitting(false);
     }
@@ -140,8 +154,35 @@ const MeetingSetup = () => {
   // UI START
   // ------------------------------------------------------------------
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50 flex items-center justify-center py-12 px-4">
-      <div className="max-w-md w-full">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50 flex flex-col items-center">
+      {/* Top nav */}
+      <header className="w-full backdrop-blur-sm bg-white/60 border-b border-gray-100 z-40 mb-8">
+        <div className="max-w-screen-xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex items-center justify-between h-16">
+            <Link to="/" className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-indigo-600 flex items-center justify-center text-white font-bold shadow-md">
+                V
+              </div>
+              <div className="hidden sm:block">
+                <div className="text-lg font-semibold">VYAKTA</div>
+                <div className="text-xs text-gray-500">One platform. Every voice.</div>
+              </div>
+            </Link>
+
+            <nav className="hidden md:flex items-center gap-6">
+              <Link to="/features" className="text-sm text-gray-600 hover:text-gray-900">Features</Link>
+              <Link to="/about" className="text-sm text-gray-600 hover:text-gray-900">About</Link>
+              <Link to="/contact" className="text-sm text-gray-600 hover:text-gray-900">Contact</Link>
+            </nav>
+
+            <div className="flex items-center gap-3">
+              {/* Optional: Add user profile or something else here if logged in */}
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <div className="max-w-md w-full px-4 mb-12">
         <div className="bg-white rounded-2xl shadow-xl p-8 border border-gray-200">
 
           <div className="text-center mb-10">
@@ -179,18 +220,7 @@ const MeetingSetup = () => {
             {authMode === "register" && (
               <div className="space-y-5 animate-fadeIn">
 
-                <div>
-                  <label className="block text-sm text-gray-700 mb-1">Salutation</label>
-                  <input
-                    type="text"
-                    placeholder="Mr / Ms / Dr"
-                    value={formData.salutation}
-                    onChange={(e) =>
-                      setFormData({ ...formData, salutation: e.target.value })
-                    }
-                    className="w-full p-3 border border-gray-300 rounded-lg bg-gray-50"
-                  />
-                </div>
+
 
                 <div>
                   <label className="block text-sm text-gray-700 mb-1">Full Name</label>

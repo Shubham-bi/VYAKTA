@@ -76,6 +76,11 @@ export default function ImageStream30({
     speechBufferRef.current += text;
   };
 
+  const toggleSpeech = () => {
+    if (!speechInitialized) initSpeech();
+    setSpeakingEnabled(!speakingEnabled);
+  };
+
   // Dedicated loop to process speech buffer periodically
   useEffect(() => {
     speechIntervalRef.current = setInterval(() => {
@@ -146,12 +151,27 @@ export default function ImageStream30({
       startCapture();
     }
 
+    const onUserGesture = () => initSpeech();
+    const onToggleSpeech = () => setSpeakingEnabled(prev => !prev);
+
+    window.addEventListener("userGestureEnableSpeech", onUserGesture);
+    window.addEventListener("toggleSpeech", onToggleSpeech);
+
     return () => {
       clearInterval(typerRef.current);
       stopCapture();
+      window.removeEventListener("userGestureEnableSpeech", onUserGesture);
+      window.removeEventListener("toggleSpeech", onToggleSpeech);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Notify parent of speech state
+  useEffect(() => {
+    if (onSpeechInitChange) {
+      onSpeechInitChange(speechInitialized, speakingEnabled);
+    }
+  }, [speechInitialized, speakingEnabled, onSpeechInitChange]);
 
   // Sync typed text with parent
   useEffect(() => {
@@ -204,20 +224,20 @@ export default function ImageStream30({
     stopFlagRef.current = false;
 
     try {
-      // 1) open WS
-      const ws = await connectWS();
-      wsRef.current = ws;
-
-      // 2) get camera stream
+      // 1) get camera stream FIRST (so user sees themselves immediately)
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { width: 1280, height: 720, frameRate: { ideal: 30, max: 30 } },
         audio: false,
       });
+
+      if (stopFlagRef.current) {
+        stream.getTracks().forEach((t) => t.stop());
+        return;
+      }
       streamRef.current = stream;
 
-      // honor cameraOn prop logic if needed, but for now we just get the track
+      // honor cameraOn prop logic
       const track = stream.getVideoTracks()[0];
-      // Sync track enabled state with prop
       track.enabled = !!camOn;
 
       // bind preview
@@ -225,6 +245,16 @@ export default function ImageStream30({
       if (v) {
         v.srcObject = stream;
         await v.play().catch(() => { });
+        // Set capturing true so UI shows "Stop Stream" and video is visible
+        setCapturing(true);
+      }
+
+      // 2) open WS (non-blocking for camera preview)
+      try {
+        const ws = await connectWS();
+        wsRef.current = ws;
+      } catch (wsErr) {
+        console.warn("WS connection failed, but camera is running", wsErr);
       }
 
       // 3) setup encoder pipeline
@@ -257,7 +287,6 @@ export default function ImageStream30({
         return new Uint8Array(await blob.arrayBuffer());
       }
 
-      setCapturing(true);
       let seq = 0;
 
       // 4) pumping loop
@@ -274,12 +303,13 @@ export default function ImageStream30({
             continue;
           }
 
-          // backpressure: drop frames if WS congested
+          // backpressure: drop frames if WS congested or not connected
           const ok =
             wsRef.current &&
             wsRef.current.readyState === WebSocket.OPEN &&
             wsRef.current.bufferedAmount < 2_000_000;
 
+          // If WS is not OK, we still consume frames (to keep reader draining) but don't send
           if (!ok) {
             frame.close();
             continue;
@@ -324,8 +354,16 @@ export default function ImageStream30({
   function stopCapture() {
     stopFlagRef.current = true;
 
-
+    // 1. Stop all tracks immediately (robust global cleanup)
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => t.stop());
+    }
     streamRef.current = null;
+
+    // 2. Clear video source
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
 
     try {
       if ("speechSynthesis" in window) window.speechSynthesis.cancel();
@@ -417,8 +455,24 @@ export default function ImageStream30({
             )}
           </div>
 
-          <div className="pointer-events-auto text-white/80 text-xs">
-            {/* Other debug toggles could go here */}
+          <div className="pointer-events-auto flex items-center justify-center gap-4">
+            {/* Speaker Toggle */}
+            <button
+              onClick={toggleSpeech}
+              className={`p-2 rounded-full shadow-lg transition ${speakingEnabled ? "bg-white text-indigo-600" : "bg-gray-800 text-gray-400"
+                }`}
+              title={speakingEnabled ? "Mute Speech" : "Enable Speech"}
+            >
+              {speakingEnabled ? (
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" /></svg>
+              ) : (
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" /></svg>
+              )}
+            </button>
+
+            <div className="pointer-events-auto text-white/80 text-xs">
+              {/* Other debug toggles could go here */}
+            </div>
           </div>
         </div>
       )}

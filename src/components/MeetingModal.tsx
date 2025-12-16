@@ -190,21 +190,6 @@ const MeetingModal = ({ isOpen, onClose }: MeetingModalProps) => {
           --------------------------------------------------- */}
           {authMode === "register" && (
             <>
-              {/* Salutation */}
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-2 uppercase tracking-wider">
-                  Salutation
-                </label>
-                <input
-                  type="text"
-                  value={formData.salutation}
-                  onChange={(e) =>
-                    setFormData({ ...formData, salutation: e.target.value })
-                  }
-                  placeholder="Mr / Ms / Dr"
-                  className="w-full px-4 py-3 rounded-lg bg-gray-50 border border-gray-200"
-                />
-              </div>
 
               {/* Full Name */}
               <div>

@@ -42,13 +42,21 @@ export default function MeetingRoom() {
   };
 
   const confirmEndMeeting = () => {
+    // Force cleanup of streams before navigation
+    window.dispatchEvent(new Event("endMeeting"));
+
     setShowEndModal(false);
     navigate("/");
   };
 
   const handleSpeechInit = () => {
-    // Trigger speech initialization via event
-    window.dispatchEvent(new Event("userGestureEnableSpeech"));
+    // If not initialized, user gesture enables it
+    if (!speechInitialized) {
+      window.dispatchEvent(new Event("userGestureEnableSpeech"));
+    } else {
+      // If already initialized, just toggle state
+      window.dispatchEvent(new Event("toggleSpeech"));
+    }
   };
 
   const handleSpeechStateChange = (initialized: boolean, enabled: boolean) => {
@@ -87,7 +95,7 @@ export default function MeetingRoom() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
 
           {/* Host Video Card */}
-          <div className="bg-white rounded-2xl shadow-xl border border-gray-200 p-6 hover:shadow-2xl transition-all duration-300">
+          <div className="bg-white rounded-2xl shadow-xl border border-gray-200 p-3 hover:shadow-2xl transition-all duration-300">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xl font-bold text-gray-900">Host</h2>
               <div className="flex items-center gap-2">
@@ -100,7 +108,7 @@ export default function MeetingRoom() {
                   }`}>
                   <span className={`w-2 h-2 rounded-full ${hostWsStatus === "connected" ? "bg-green-500 animate-pulse" : "bg-gray-400"
                     }`}></span>
-                  {hostWsStatus === "connected" ? "Connected" : hostWsStatus === "error" ? "Error" : "Disconnected"}
+                  {hostWsStatus === "connected" ? "Connected" : hostWsStatus === "error" ? "Error" : ""}
                 </div>
 
                 <div className={`px-3 py-1 rounded-full text-xs font-semibold ${camOn
@@ -128,7 +136,7 @@ export default function MeetingRoom() {
           </div>
 
           {/* Guest Audio - Simple Design */}
-          <div className="bg-white rounded-2xl shadow-xl border border-gray-200 p-6 hover:shadow-2xl transition-all duration-300">
+          <div className="bg-white rounded-2xl shadow-xl border border-gray-200 p-3 hover:shadow-2xl transition-all duration-300">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xl font-bold text-gray-900">Guest</h2>
               <div className="flex items-center gap-2">
@@ -141,7 +149,7 @@ export default function MeetingRoom() {
                   }`}>
                   <span className={`w-2 h-2 rounded-full ${audioWsStatus === "connected" ? "bg-green-500 animate-pulse" : "bg-gray-400"
                     }`}></span>
-                  {audioWsStatus === "connected" ? "Connected" : audioWsStatus === "error" ? "Error" : "Disconnected"}
+                  {audioWsStatus === "connected" ? "Connected" : audioWsStatus === "error" ? "Error" : ""}
                 </div>
 
                 <div className={`px-3 py-1 rounded-full text-xs font-semibold ${micOn
@@ -194,7 +202,7 @@ export default function MeetingRoom() {
           </div>
           <div
             ref={transcriptionRef}
-            className="bg-gradient-to-br from-gray-900 to-gray-800 text-white p-6 rounded-xl h-64 overflow-y-auto font-mono text-sm leading-relaxed shadow-inner"
+            className="bg-gradient-to-br from-gray-900 to-gray-800 text-white p-4 rounded-xl h-32 overflow-y-auto font-mono text-xs leading-relaxed shadow-inner"
           >
             {transcription || (
               <span className="text-gray-400 italic">Waiting for transcription...</span>

@@ -152,6 +152,11 @@ export default function AudioToImage({ autoStart = false, micOn = true, onStatus
         audio: true,
         video: false,
       });
+
+      if (stopFlagRef.current) {
+        mediaStream.getTracks().forEach((t) => t.stop());
+        return;
+      }
       mediaStreamRef.current = mediaStream;
 
       // apply initial mic state
@@ -289,6 +294,12 @@ export default function AudioToImage({ autoStart = false, micOn = true, onStatus
   async function stopAudio() {
     stopFlagRef.current = true;
 
+    // 1. Stop all audio tracks immediately (robust)
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getTracks().forEach((t) => t.stop());
+    }
+    mediaStreamRef.current = null;
+
     // disconnect processor and source
     try {
       if (procRef.current) {
@@ -319,11 +330,11 @@ export default function AudioToImage({ autoStart = false, micOn = true, onStatus
       }
     } catch { }
 
-    // stop tracks
-    try {
-      mediaStreamRef.current?.getTracks().forEach((t) => t.stop());
-    } catch { }
-    mediaStreamRef.current = null;
+    // stop tracks (handled at top)
+    // try {
+    //   mediaStreamRef.current?.getTracks().forEach((t) => t.stop());
+    // } catch { }
+    // mediaStreamRef.current = null;
 
     // close websocket
     try {
