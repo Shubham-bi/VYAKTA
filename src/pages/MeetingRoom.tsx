@@ -110,8 +110,8 @@ export default function MeetingRoom() {
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 h-[calc(100vh-12rem)] min-h-[600px]">
 
-          {/* Host Video Section */}
-          <div className="lg:col-span-9 flex flex-col h-full">
+          {/* Host Video Section - 60% Width (7/12 cols) */}
+          <div className="lg:col-span-7 flex flex-col h-full">
             <div className="relative flex-grow bg-black/40 backdrop-blur-sm rounded-[32px] border border-white/10 shadow-2xl overflow-hidden group">
 
               {/* Host Label & Status Overlay */}
@@ -140,18 +140,18 @@ export default function MeetingRoom() {
             </div>
           </div>
 
-          {/* Right Column: Transcription/Chat */}
-          <div className="lg:col-span-3 flex flex-col h-full gap-4">
+          {/* Right Column: Transcription/Chat - 40% Width (5/12 cols) */}
+          <div className="lg:col-span-5 flex flex-col h-full gap-4">
 
             <div className="flex-grow bg-white/5 backdrop-blur-xl rounded-[32px] border border-white/10 shadow-xl overflow-hidden flex flex-col">
 
               {/* Panel Header */}
               <div className="p-6 border-b border-white/5 bg-white/5">
                 <div className="flex items-center justify-between">
-                  <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                  <h2 className="text-2xl font-bold text-white flex items-center gap-2">
                     <span>💬</span> Transcription
                   </h2>
-                  <div className="px-2 py-1 rounded bg-indigo-500/20 text-indigo-300 text-[10px] font-bold uppercase tracking-wider border border-indigo-500/30">
+                  <div className="px-3 py-1.5 rounded bg-indigo-500/20 text-indigo-300 text-xs font-bold uppercase tracking-wider border border-indigo-500/30">
                     Live
                   </div>
                 </div>
@@ -163,7 +163,7 @@ export default function MeetingRoom() {
                 className="flex-grow overflow-y-auto p-6 space-y-4 scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent"
               >
                 {transcription ? (
-                  <div className="bg-indigo-600/10 border border-indigo-500/20 rounded-2xl rounded-tl-sm p-4 text-sm leading-relaxed text-indigo-100 shadow-sm relative group hover:bg-indigo-600/20 transition-colors">
+                  <div className="bg-indigo-600/10 border border-indigo-500/20 rounded-2xl rounded-tl-sm p-6 text-xl md:text-2xl leading-relaxed text-indigo-50 shadow-sm relative group hover:bg-indigo-600/20 transition-colors break-words">
                     {(() => {
                       if (!highlightRange) return transcription;
                       const { start, length } = highlightRange;
@@ -181,8 +181,8 @@ export default function MeetingRoom() {
                         </>
                       );
                     })()}
-                    <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <span className="text-[10px] text-indigo-300 font-mono">NOW</span>
+                    <div className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <span className="text-xs text-indigo-300 font-mono">NOW</span>
                     </div>
                   </div>
                 ) : (
@@ -192,7 +192,7 @@ export default function MeetingRoom() {
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
                       </svg>
                     </div>
-                    <p className="text-sm font-medium">Waiting for speech...</p>
+                    <p className="text-lg font-medium">Waiting for speech...</p>
                   </div>
                 )}
               </div>
