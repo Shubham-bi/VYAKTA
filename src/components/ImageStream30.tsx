@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { ElevenLabsClient } from "@elevenlabs/elevenlabs-js";
 
 const VIDEO_WS_URL = import.meta.env.VITE_VIDEO_WS_URL as string;
 
@@ -63,61 +64,112 @@ export default function ImageStream30({
     }
   }, [wsStatus, onStatusChange]);
 
-  // Speech handling
-  // We use a Set to hold *multiple* active utterances to prevent GC of queued items
-  const activeUtterancesRef = useRef<Set<SpeechSynthesisUtterance>>(new Set());
+
+  // ElevenLabs
+  // Speech handling with ElevenLabs (refs initialized below)
+  const audioQueueRef = useRef<string[]>([]);
+  const isPlayingRef = useRef<boolean>(false);
   const speechBufferRef = useRef<string>("");
-  const speechIntervalRef = useRef<any>(null);
+  const ELEVENLABS_API_KEY = import.meta.env.VITE_ELEVENLABS_API_KEY;
+
+  const playNextInQueue = async () => {
+    if (isPlayingRef.current || audioQueueRef.current.length === 0) return;
+
+    const text = audioQueueRef.current.shift();
+    if (!text) return;
+
+    isPlayingRef.current = true;
+
+    try {
+      if (!ELEVENLABS_API_KEY || ELEVENLABS_API_KEY.includes("YOUR_")) {
+        console.warn("ElevenLabs API Key missing in .env");
+        isPlayingRef.current = false;
+        playNextInQueue(); // try next? or stop
+        return;
+      }
+
+      const client = new ElevenLabsClient({ apiKey: ELEVENLABS_API_KEY });
+      // Using standard voice 'JBFqnCBsd6RMkjVDRZzb' (George) logic or parameterized
+      // Stream as Int16 or MP3, here we fetch full blob usually for simple playback
+      // Note: SDK returns a stream. In browser we can consume it.
+
+      const audioStream = await client.textToSpeech.convert("JBFqnCBsd6RMkjVDRZzb", {
+        text,
+        modelId: "eleven_multilingual_v2",
+        outputFormat: "mp3_44100_128",
+      });
+
+      // Browser playback from stream
+      const chunks: Uint8Array[] = [];
+      const reader = audioStream.getReader();
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (value) chunks.push(value);
+      }
+
+      const blob = new Blob(chunks as any[], { type: "audio/mpeg" });
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+
+      audio.onended = () => {
+        URL.revokeObjectURL(url);
+        isPlayingRef.current = false;
+        playNextInQueue();
+      };
+
+      audio.onerror = (e) => {
+        console.error("Audio playback error", e);
+        isPlayingRef.current = false;
+        playNextInQueue();
+      };
+
+      await audio.play();
+
+    } catch (err) {
+      console.error("ElevenLabs TTS Error:", err);
+      isPlayingRef.current = false;
+      playNextInQueue();
+    }
+  };
 
   const speakNow = (text: string) => {
     if (!speakingEnabled) return;
-    // content check log
-    // console.log("Received delta:", text); 
+    if (!text || text.trim().length === 0) return;
+
+    // Simple debouncing/batching could happen here, but for now push directly
+    // Ideally we batch small deltas into sentences, but the input 'text' here seems to be deltas from WS?
+    // The previous code accumulated deltas into speechBufferRef and spoke every 500ms.
+    // We should replicate that buffering behavior to avoid sending every character to ElevenLabs (expensive & weird sounding)
     speechBufferRef.current += text;
   };
 
+  // Buffer process loop
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const text = speechBufferRef.current;
+      if (text && text.trim().length > 0) {
+        // Basic punctuation split or just sending the buffer?
+        // Previous code just sent the whole buffer every 500ms.
+        // For ElevenLabs, we want bigger chunks to save credits and sound better.
+        // However, let's keep it similar: flush buffer if it has content.
+
+        // Refine: only flush if we have a robust amount of text or a pause (checking buffer didn't change?)
+        // For now, let's just flush it.
+        audioQueueRef.current.push(text);
+        speechBufferRef.current = "";
+        playNextInQueue();
+      }
+    }, 2000); // Increased latency to 2s to allow more text to accumulate for better TTS mapping
+
+    return () => clearInterval(interval);
+  }, []); // Only run once to set up interval
+
   const toggleSpeech = () => {
-    if (!speechInitialized) initSpeech();
     setSpeakingEnabled(!speakingEnabled);
   };
 
-  // Dedicated loop to process speech buffer periodically
-  useEffect(() => {
-    speechIntervalRef.current = setInterval(() => {
-      const text = speechBufferRef.current;
-      if (!text || text.trim().length === 0) return;
-
-      try {
-        const speech = new SpeechSynthesisUtterance(text);
-        speech.lang = "en-IN";
-        speech.rate = 1.2;
-        speech.pitch = 1.2;
-
-        // Add to Set
-        activeUtterancesRef.current.add(speech);
-
-        speech.onend = () => {
-          activeUtterancesRef.current.delete(speech);
-        };
-        speech.onerror = (e) => {
-          console.error("Speech error", e);
-          activeUtterancesRef.current.delete(speech);
-        };
-
-        window.speechSynthesis.speak(speech);
-        speechBufferRef.current = ""; // Clear buffer
-      } catch (e) {
-        console.error("Speech creation error", e);
-      }
-    }, 500); // Check every 500ms
-
-    return () => {
-      clearInterval(speechIntervalRef.current);
-      // Cancel all
-      if ("speechSynthesis" in window) window.speechSynthesis.cancel();
-      activeUtterancesRef.current.clear();
-    };
-  }, [speakingEnabled]);
 
 
   useEffect(() => {
