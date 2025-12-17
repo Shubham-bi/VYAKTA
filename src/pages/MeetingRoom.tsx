@@ -24,6 +24,9 @@ export default function MeetingRoom() {
   const [audioWsStatus, setAudioWsStatus] = useState("disconnected");
   const [showEndModal, setShowEndModal] = useState(false);
 
+  // Highlighting
+  const [highlightRange, setHighlightRange] = useState<{ start: number, length: number } | null>(null);
+
   // ✅ auto start both streams on load
   useEffect(() => {
     setMounted(true);
@@ -128,6 +131,7 @@ export default function MeetingRoom() {
                 onTextUpdate={setTranscription}
                 onSpeechInitChange={handleSpeechStateChange}
                 onStatusChange={setHostWsStatus}
+                onSpeechHighlight={(start, length) => setHighlightRange({ start, length })}
                 hideControls={true}
               />
 
@@ -204,7 +208,29 @@ export default function MeetingRoom() {
             ref={transcriptionRef}
             className="bg-gradient-to-br from-gray-900 to-gray-800 text-white p-4 rounded-xl h-32 overflow-y-auto font-mono text-xs leading-relaxed shadow-inner"
           >
-            {transcription || (
+
+            {transcription ? (
+              <>
+                {(() => {
+                  if (!highlightRange) return transcription;
+                  const { start, length } = highlightRange;
+                  // Safety clamp
+                  if (start >= transcription.length) return transcription;
+
+                  const prefix = transcription.slice(0, start);
+                  const active = transcription.slice(start, start + length);
+                  const suffix = transcription.slice(start + length);
+
+                  return (
+                    <>
+                      {prefix}
+                      <span className="bg-yellow-300 text-black px-1 rounded-sm transition-colors duration-100">{active}</span>
+                      {suffix}
+                    </>
+                  );
+                })()}
+              </>
+            ) : (
               <span className="text-gray-400 italic">Waiting for transcription...</span>
             )}
           </div>

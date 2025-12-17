@@ -8,6 +8,7 @@ type Props = {
   onTextUpdate?: (text: string) => void;
   onSpeechInitChange?: (initialized: boolean, enabled: boolean) => void;
   onStatusChange?: (status: string) => void;
+  onSpeechHighlight?: (startIndex: number, length: number) => void;
   hideControls?: boolean;
 };
 
@@ -17,7 +18,9 @@ export default function ImageStream30({
   onTextUpdate,
   onSpeechInitChange,
   onStatusChange,
+  onSpeechHighlight,
   hideControls = false,
+
 }: Props) {
   // UI state
   const [wsStatus, setWsStatus] = useState<string>("disconnected");
@@ -68,6 +71,7 @@ export default function ImageStream30({
   const activeUtterancesRef = useRef<Set<SpeechSynthesisUtterance>>(new Set());
   const speechBufferRef = useRef<string>("");
   const speechIntervalRef = useRef<any>(null);
+  const totalSpokenLengthRef = useRef<number>(0);
 
   const speakNow = (text: string) => {
     if (!speakingEnabled) return;
@@ -91,7 +95,20 @@ export default function ImageStream30({
         const speech = new SpeechSynthesisUtterance(text);
         speech.lang = "en-IN";
         speech.rate = 1.2;
-        speech.pitch = 1.2;
+        speech.pitch = 1.0;
+
+        // Capture current start offset for this utterance
+        const startOffset = totalSpokenLengthRef.current;
+        totalSpokenLengthRef.current += text.length;
+
+        // Highlight tracking
+        speech.onboundary = (e) => {
+          if (e.name === 'word' && onSpeechHighlight) {
+            // e.charIndex is relative to THIS utterance
+            // Global index = startOffset + e.charIndex
+            onSpeechHighlight(startOffset + e.charIndex, e.charLength || 0);
+          }
+        };
 
         // Add to Set
         activeUtterancesRef.current.add(speech);
@@ -221,6 +238,7 @@ export default function ImageStream30({
     setTyped("");
     pendingRef.current = ""; // Clear pending text buffer
     speechBufferRef.current = ""; // Clear speech buffer
+    totalSpokenLengthRef.current = 0; // Reset spoken length
     stopFlagRef.current = false;
 
     try {
