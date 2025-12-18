@@ -26,6 +26,7 @@ export default function ImageStream30({
   const [wsStatus, setWsStatus] = useState<string>("disconnected");
   const [capturing, setCapturing] = useState<boolean>(false);
   const [typed, setTyped] = useState<string>("");
+  const [sourceMode, setSourceMode] = useState<"camera" | "video">("camera");
 
   // refs
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -34,6 +35,7 @@ export default function ImageStream30({
   const readerRef = useRef<ReadableStreamDefaultReader<any> | null>(null);
   const stopFlagRef = useRef<boolean>(false);
   const terminalRef = useRef<HTMLDivElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   // typing buffer
   const pendingRef = useRef<string>("");
@@ -223,15 +225,45 @@ export default function ImageStream30({
         try {
           const raw = typeof e.data === "string" ? e.data : new TextDecoder().decode(e.data);
           const msg = JSON.parse(raw);
+          // if (msg.delta) {
+          //   pendingRef.current += msg.delta;
+          //   speakNow(msg.delta);
+          // }
+
           if (msg.delta) {
-            pendingRef.current += msg.delta;
-            speakNow(msg.delta);
+            const chunkWithSpace = msg.delta + " ";
+
+            pendingRef.current += chunkWithSpace;
+            speakNow(chunkWithSpace);
           }
+
         } catch {
           /* ignore */
         }
       };
     });
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      stopCapture(); // Stop current stream if any
+      setSourceMode("video");
+
+      const videoUrl = URL.createObjectURL(file);
+      if (videoRef.current) {
+        // Reset source
+        videoRef.current.srcObject = null;
+        videoRef.current.src = videoUrl;
+        videoRef.current.loop = true;
+
+        // When metadata loads, start capture automatically
+        videoRef.current.onloadedmetadata = () => {
+          // Small delay to ensure readyState is sufficient or just call start
+          startCapture();
+        }
+      }
+    }
+  };
 
   async function startCapture() {
     if (capturing) return;
@@ -242,28 +274,50 @@ export default function ImageStream30({
     stopFlagRef.current = false;
 
     try {
-      // 1) get camera stream FIRST (so user sees themselves immediately)
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: 1280, height: 720, frameRate: { ideal: 30, max: 30 } },
-        audio: false,
-      });
+      let stream: MediaStream;
 
-      if (stopFlagRef.current) {
-        stream.getTracks().forEach((t) => t.stop());
-        return;
+      if (sourceMode === "camera") {
+        // 1) get camera stream
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { width: 1280, height: 720, frameRate: { ideal: 30, max: 30 } },
+          audio: false,
+        });
+
+        if (stopFlagRef.current) {
+          stream.getTracks().forEach((t) => t.stop());
+          return;
+        }
+
+        // honor cameraOn prop logic
+        const track = stream.getVideoTracks()[0];
+        track.enabled = !!camOn;
+
+        // bind preview logic for camera
+        if (videoRef.current) {
+          videoRef.current.src = ""; // clear possible file src
+          videoRef.current.srcObject = stream;
+        }
+      } else {
+        // Video Mode
+        const v = videoRef.current;
+        if (!v || !v.src) {
+          console.error("No video source loaded");
+          setSourceMode("camera"); // fallback to camera if no video
+          return;
+        }
+        // ensure playing
+        await v.play().catch(console.error);
+
+        // specific captureStream handling
+        // @ts-ignore
+        stream = (v.mozCaptureStream || v.captureStream).call(v);
       }
+
       streamRef.current = stream;
 
-      // honor cameraOn prop logic
-      const track = stream.getVideoTracks()[0];
-      track.enabled = !!camOn;
-
-      // bind preview
-      const v = videoRef.current;
-      if (v) {
-        v.srcObject = stream;
-        await v.play().catch(() => { });
-        // Set capturing true so UI shows "Stop Stream" and video is visible
+      // Ensure video is playing for visibility
+      if (videoRef.current) {
+        await videoRef.current.play().catch(() => { });
         setCapturing(true);
       }
 
@@ -276,6 +330,7 @@ export default function ImageStream30({
       }
 
       // 3) setup encoder pipeline
+      const track = stream.getVideoTracks()[0];
       const w = 1280, h = 720, quality = 0.6;
       // Polyfill check or assume modern browser
       // @ts-ignore
@@ -315,8 +370,8 @@ export default function ImageStream30({
           const frame = result.value;
 
           // if camera is toggled off (via prop sync), just drop frames until it's back on
-          // We check the track enabled state or the prop
-          if (!track.enabled) { // or !camOn
+          // In video mode, we ignore camOn usually, but for consistency we might keep it or ignore.
+          if (sourceMode === "camera" && !track.enabled) {
             frame.close();
             continue;
           }
@@ -374,13 +429,19 @@ export default function ImageStream30({
 
     // 1. Stop all tracks immediately (robust global cleanup)
     if (streamRef.current) {
+      // In firefox, stopping tracks from captureStream might affect video element?
+      // Usually fine.
       streamRef.current.getTracks().forEach((t) => t.stop());
     }
     streamRef.current = null;
 
-    // 2. Clear video source
+    // 2. Clear video source if needed
     if (videoRef.current) {
-      videoRef.current.srcObject = null;
+      videoRef.current.pause();
+      // We don't clear src if it's a video file, so we can restart easily.
+      if (sourceMode === "camera") {
+        videoRef.current.srcObject = null;
+      }
     }
 
     try {
@@ -415,12 +476,12 @@ export default function ImageStream30({
 
   // apply camera toggle from MeetingRoom
   useEffect(() => {
-    if (streamRef.current) {
+    if (streamRef.current && sourceMode === "camera") {
       streamRef.current.getVideoTracks().forEach((t) => {
         t.enabled = camOn;
       });
     }
-  }, [camOn]);
+  }, [camOn, sourceMode]);
 
   // cleanup on unmount
   useEffect(() => {
@@ -442,19 +503,45 @@ export default function ImageStream30({
         autoPlay
         playsInline
         muted
-        className="w-full h-full object-cover transform scale-x-[-1]" // Mirror effect
+        className={`w-full h-full object-cover ${sourceMode === "camera" ? "transform scale-x-[-1]" : ""}`} // No mirror for video file
       />
+
+      {/* Invisible file input */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="video/*"
+        className="hidden"
+        onChange={handleFileUpload}
+      />
+
+      {/* Always-available hidden controls overlay */}
+      <div className="absolute inset-0 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-300 p-4 flex flex-col justify-between">
+        <div className="pointer-events-auto flex items-start justify-between">
+          <div className="bg-black/60 px-3 py-1 rounded-full text-white text-xs backdrop-blur-md border border-white/10 flex items-center gap-2">
+            <span>WS: {wsStatus}</span>
+            {sourceMode === "video" && <span className="text-indigo-400 font-semibold">• Video Mode</span>}
+          </div>
+
+          {/* Hidden upload trigger - disguised as a small icon */}
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="pointer-events-auto opacity-70 hover:opacity-100 p-2 rounded-full text-white bg-white/10 hover:bg-white/20 transition backdrop-blur-md"
+            title="Upload Video (Secret)"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M7 4v16M17 4v16M3 8h4m10 0h4M3 12h18M3 16h4m10 0h4M4 20h16a1 1 0 001-1V5a1 1 0 00-1-1H4a1 1 0 00-1 1v14a1 1 0 001 1z" />
+            </svg>
+          </button>
+        </div>
+      </div>
 
       {/* Internal controls overlay (only if hideControls is false) */}
       {!hideControls && (
-        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col justify-between p-4 pointer-events-none">
-          <div className="pointer-events-auto flex items-start justify-between">
-            <div className="bg-black/60 px-3 py-1 rounded-full text-white text-xs backdrop-blur-md border border-white/10">
-              WS: {wsStatus}
-            </div>
-          </div>
+        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col justify-end p-4 pointer-events-none">
+          {/* Note: Removed top socket badge from here as it is now in the always-available overlay above */}
 
-          <div className="pointer-events-auto flex items-center justify-center gap-4">
+          <div className="pointer-events-auto flex items-center justify-center gap-4 mb-4">
             {!capturing && !autoStart && (
               <button
                 onClick={startCapture}

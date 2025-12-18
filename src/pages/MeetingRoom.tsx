@@ -163,7 +163,7 @@ export default function MeetingRoom() {
                 className="flex-grow overflow-y-auto p-6 space-y-4 scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent"
               >
                 {transcription ? (
-                  <div className="bg-indigo-600/10 border border-indigo-500/20 rounded-2xl rounded-tl-sm p-6 text-xl md:text-2xl leading-relaxed text-indigo-50 shadow-sm relative group hover:bg-indigo-600/20 transition-colors break-words">
+                  <div className="bg-indigo-600/10 border border-indigo-500/20 rounded-2xl rounded-tl-sm p-6 text-xl md:text-2xl leading-relaxed text-indigo-50 shadow-sm relative group hover:bg-indigo-600/20 transition-colors break-words whitespace-pre-wrap">
                     {(() => {
                       if (!highlightRange) return transcription;
                       const { start, length } = highlightRange;
