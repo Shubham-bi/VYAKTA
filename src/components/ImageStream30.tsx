@@ -519,7 +519,7 @@ export default function ImageStream30({
       <div className="absolute inset-0 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-300 p-4 flex flex-col justify-between">
         <div className="pointer-events-auto flex items-start justify-between">
           <div className="bg-black/60 px-3 py-1 rounded-full text-white text-xs backdrop-blur-md border border-white/10 flex items-center gap-2">
-            <span>WS: {wsStatus}</span>
+            {/* <span>WS: {wsStatus}</span> */}
             {sourceMode === "video" && <span className="text-indigo-400 font-semibold">• Video Mode</span>}
           </div>
 
