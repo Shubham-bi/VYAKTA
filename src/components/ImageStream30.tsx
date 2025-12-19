@@ -27,6 +27,11 @@ export default function ImageStream30({
   const [capturing, setCapturing] = useState<boolean>(false);
   const [typed, setTyped] = useState<string>("");
   const [sourceMode, setSourceMode] = useState<"camera" | "video">("camera");
+  // Ref to track source mode synchronously for startCapture logic
+  const sourceModeRef = useRef<"camera" | "video">("camera");
+
+  // Session ID to handle async race conditions
+  const captureSessionIdRef = useRef<number>(0);
 
   // refs
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -248,6 +253,7 @@ export default function ImageStream30({
     if (file) {
       stopCapture(); // Stop current stream if any
       setSourceMode("video");
+      sourceModeRef.current = "video";
 
       const videoUrl = URL.createObjectURL(file);
       if (videoRef.current) {
@@ -262,11 +268,22 @@ export default function ImageStream30({
           startCapture();
         }
       }
+
+      // Reset input so same file can be selected again
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
     }
   };
 
   async function startCapture() {
-    if (capturing) return;
+    // Increment session ID to invalidate any previous async operations
+    const mySessionId = ++captureSessionIdRef.current;
+
+    // We don't check `capturing` here anymore because we want to allow restarts (e.g. video file change)
+    // But we should ensure we don't have multiple successful starts overlapping in state
+    setCapturing(true);
+
     setTyped("");
     pendingRef.current = ""; // Clear pending text buffer
     speechBufferRef.current = ""; // Clear speech buffer
@@ -276,14 +293,16 @@ export default function ImageStream30({
     try {
       let stream: MediaStream;
 
-      if (sourceMode === "camera") {
+      // Use Ref to check mode to avoid stale closure issues
+      if (sourceModeRef.current === "camera") {
         // 1) get camera stream
         stream = await navigator.mediaDevices.getUserMedia({
           video: { width: 1280, height: 720, frameRate: { ideal: 30, max: 30 } },
           audio: false,
         });
 
-        if (stopFlagRef.current) {
+        // Race condition check: if stop/restart called while we were waiting for user media
+        if (captureSessionIdRef.current !== mySessionId || stopFlagRef.current) {
           stream.getTracks().forEach((t) => t.stop());
           return;
         }
@@ -302,7 +321,8 @@ export default function ImageStream30({
         const v = videoRef.current;
         if (!v || !v.src) {
           console.error("No video source loaded");
-          setSourceMode("camera"); // fallback to camera if no video
+          // Fallback to camera? Or just stop.
+          setCapturing(false);
           return;
         }
         // ensure playing
@@ -313,20 +333,32 @@ export default function ImageStream30({
         stream = (v.mozCaptureStream || v.captureStream).call(v);
       }
 
+      if (captureSessionIdRef.current !== mySessionId) {
+        // another session started
+        return;
+      }
+
       streamRef.current = stream;
 
       // Ensure video is playing for visibility
       if (videoRef.current) {
         await videoRef.current.play().catch(() => { });
-        setCapturing(true);
+        // setCapturing(true); // already set above (optimistic)
       }
 
       // 2) open WS (non-blocking for camera preview)
       try {
         const ws = await connectWS();
+        // Race condition check: if interrupted while connecting
+        if (captureSessionIdRef.current !== mySessionId || stopFlagRef.current) {
+          ws.close();
+          return;
+        }
         wsRef.current = ws;
       } catch (wsErr) {
-        console.warn("WS connection failed, but camera is running", wsErr);
+        if (captureSessionIdRef.current === mySessionId && !stopFlagRef.current) {
+          console.warn("WS connection failed, but camera is running", wsErr);
+        }
       }
 
       // 3) setup encoder pipeline
@@ -364,14 +396,20 @@ export default function ImageStream30({
 
       // 4) pumping loop
       (async function pump() {
-        while (!stopFlagRef.current) {
+        while (!stopFlagRef.current && captureSessionIdRef.current === mySessionId) {
           const result = await reader.read();
           if (result.done || !result.value) break;
           const frame = result.value;
 
+          // Extra check after await
+          if (captureSessionIdRef.current !== mySessionId) {
+            frame.close();
+            break;
+          }
+
           // if camera is toggled off (via prop sync), just drop frames until it's back on
           // In video mode, we ignore camOn usually, but for consistency we might keep it or ignore.
-          if (sourceMode === "camera" && !track.enabled) {
+          if (sourceModeRef.current === "camera" && !track.enabled) {
             frame.close();
             continue;
           }
@@ -407,25 +445,38 @@ export default function ImageStream30({
           out.set(new Uint8Array(header), 0);
           out.set(payload, header.byteLength);
 
-          wsRef.current?.send(out.buffer);
+          if (wsRef.current?.readyState === WebSocket.OPEN) {
+            wsRef.current.send(out.buffer);
+          }
           seq++;
         }
-        // finished
-        setCapturing(false);
+
+        // Loop finished. If I'm the current session, update state.
+        if (captureSessionIdRef.current === mySessionId) {
+          setCapturing(false);
+        }
       })().catch((e) => {
         console.error("pump error", e);
-        setCapturing(false);
+        if (captureSessionIdRef.current === mySessionId) {
+          setCapturing(false);
+        }
       });
 
     } catch (err) {
       console.error("Start capture error", err);
       // cleanup if failed
-      stopCapture();
+      if (captureSessionIdRef.current === mySessionId) {
+        stopCapture();
+      }
     }
   }
 
   function stopCapture() {
-    stopFlagRef.current = true;
+    stopFlagRef.current = true; // Signal loops to stop
+
+    // Note: We do NOT increment session ID here necessarily, because we might just want to stop safely.
+    // However, incrementing it is the surest way to kill any async starters.
+    // But startCapture increments it immediately anyway.
 
     // 1. Stop all tracks immediately (robust global cleanup)
     if (streamRef.current) {
@@ -439,7 +490,7 @@ export default function ImageStream30({
     if (videoRef.current) {
       videoRef.current.pause();
       // We don't clear src if it's a video file, so we can restart easily.
-      if (sourceMode === "camera") {
+      if (sourceModeRef.current === "camera") {
         videoRef.current.srcObject = null;
       }
     }
@@ -450,18 +501,16 @@ export default function ImageStream30({
 
     try {
       if (wsRef.current) {
+        // Close immediately
+        const ws = wsRef.current;
+        wsRef.current = null; // Detach ref first
+
         try {
-          if (wsRef.current.readyState === WebSocket.OPEN) {
-            try {
-              wsRef.current.send(JSON.stringify({ type: "client_disconnect" }));
-            } catch { }
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: "client_disconnect" }));
           }
-        } finally {
-          try {
-            wsRef.current.close();
-          } catch { }
-          wsRef.current = null;
-        }
+        } catch { }
+        ws.close();
       }
     } catch { }
 

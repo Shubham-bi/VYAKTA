@@ -145,6 +145,11 @@ export default function AudioToImage({ autoStart = false, micOn = true, onStatus
 
     try {
       const ws = await connectWS();
+      // Race condition check: if interrupted while connecting
+      if (stopFlagRef.current) {
+        ws.close();
+        return;
+      }
       wsRef.current = ws;
 
       // request microphone
